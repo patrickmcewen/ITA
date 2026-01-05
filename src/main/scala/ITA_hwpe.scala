@@ -146,11 +146,10 @@ class ITAHWPETL(params: ITAHWPEParams, beatBytes: Int)(implicit p: Parameters) e
 
   override lazy val module = new ITAHWPEImpl
   class ITAHWPEImpl extends Impl with HasITAHWPETopIO {
-    val io = IO(new ITAHWPETopIO(params))
-    val params = ITAHWPETL.this.params
+    val io = IO(new ITAHWPETopIO(ITAHWPETL.this.params))
     withClockAndReset(clock, reset) {
       // Instantiate the ITA HWPE blackbox
-      val impl = Module(new ITAHWPEBlackBox(params))
+      val impl = Module(new ITAHWPEBlackBox(ITAHWPETL.this.params))
 
       // Connect clock and reset
       impl.io.clk_i := clock
@@ -179,10 +178,10 @@ class ITAHWPETL(params: ITAHWPEParams, beatBytes: Int)(implicit p: Parameters) e
       val periph_wen = RegInit(false.B)
       val periph_be = RegInit(0.U(4.W))
       val periph_data = RegInit(0.U(32.W))
-      val periph_id = RegInit(0.U(params.IdWidth.W))
+      val periph_id = RegInit(0.U(ITAHWPETL.this.params.IdWidth.W))
       val periph_r_data = Wire(UInt(32.W))
       val periph_r_valid = Wire(Bool())
-      val periph_r_id = Wire(UInt(params.IdWidth.W))
+      val periph_r_id = Wire(UInt(ITAHWPETL.this.params.IdWidth.W))
 
       // HWPE register file shadow registers (17 registers as per ITA_IO_REGS)
       // These shadow the HWPE internal register file
@@ -195,7 +194,7 @@ class ITAHWPETL(params: ITAHWPEParams, beatBytes: Int)(implicit p: Parameters) e
       val pending_wen = RegInit(false.B)
       val pending_data = RegInit(0.U(32.W))
       val pending_be = RegInit(0.U(4.W))
-      val pending_id = RegInit(0.U(params.IdWidth.W))
+      val pending_id = RegInit(0.U(ITAHWPETL.this.params.IdWidth.W))
       val pending_reg_idx = RegInit(0.U(5.W))
 
       // Connect peripheral port to blackbox
@@ -262,10 +261,8 @@ class ITAHWPETL(params: ITAHWPEParams, beatBytes: Int)(implicit p: Parameters) e
       val regmap_entries = (0 until 17).map { i =>
         val reg_offset = i * 4
         reg_offset -> Seq(
-          // Read field: return shadow register value
-          RegField.r(32, hwpe_regs(i)),
-          // Write field: update shadow and trigger HWPE write
-          RegField.w(32, (valid: Bool, data: UInt) => {
+          // Read-write field: return shadow register value on read, update on write
+          RegField(32, hwpe_regs(i), (valid: Bool, data: UInt) => {
             when(valid && state === sIdle) {
               pending_addr := reg_offset.U
               pending_wen := true.B
@@ -356,13 +353,16 @@ trait CanHavePeripheryITAHWPE { this: BaseSubsystem =>
       // Expose TCDM ports - these need to be connected to TCDM interconnect
       val ita_hwpe_tcdm_ports = InModuleBody {
         val tcdm_req = IO(Output(Vec(params.MP, Bool()))).suggestName("ita_hwpe_tcdm_req")
-        val tcdm_gnt = IO(Input(Vec(params.MP, Bool()))).suggestName("ita_hwpe_tcdm_gnt")
         val tcdm_add = IO(Output(Vec(params.MP, UInt(32.W)))).suggestName("ita_hwpe_tcdm_add")
         val tcdm_wen = IO(Output(Vec(params.MP, Bool()))).suggestName("ita_hwpe_tcdm_wen")
         val tcdm_be = IO(Output(Vec(params.MP, UInt((params.MemDataWidth/8).W)))).suggestName("ita_hwpe_tcdm_be")
         val tcdm_data = IO(Output(Vec(params.MP, UInt(params.MemDataWidth.W)))).suggestName("ita_hwpe_tcdm_data")
-        val tcdm_r_data = IO(Input(Vec(params.MP, UInt(params.MemDataWidth.W)))).suggestName("ita_hwpe_tcdm_r_data")
-        val tcdm_r_valid = IO(Input(Vec(params.MP, Bool()))).suggestName("ita_hwpe_tcdm_r_valid")
+        
+        // For input ports that are not yet connected, use wires with default values
+        // These can be replaced with IO ports when TCDM interconnect is added
+        val tcdm_gnt = WireDefault(VecInit(Seq.fill(params.MP)(false.B)))
+        val tcdm_r_data = WireDefault(VecInit(Seq.fill(params.MP)(0.U(params.MemDataWidth.W))))
+        val tcdm_r_valid = WireDefault(VecInit(Seq.fill(params.MP)(false.B)))
 
         // Connect to module IO
         tcdm_req := ita_hwpe.module.io.tcdm_req

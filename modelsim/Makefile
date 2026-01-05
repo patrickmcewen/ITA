@@ -5,12 +5,12 @@
 .PHONY: lib build
 all: lib build
 
-QUESTA_SEPP ?= questa-2023.4
+QUESTA_SEPP ?= 
 buildpath   ?= build
-VOPT        ?= $(QUESTA_SEPP) vopt
-VSIM        ?= $(QUESTA_SEPP) vsim
-VLIB        ?= $(QUESTA_SEPP) vlib
-VMAP        ?= $(QUESTA_SEPP) vmap
+VOPT        ?= $(QUESTA_SEPP)vopt
+VSIM        ?= $(QUESTA_SEPP)vsim
+VLIB        ?= $(QUESTA_SEPP)vlib
+VMAP        ?= $(QUESTA_SEPP)vmap
 VSIM_FLAGS  ?= -gui
 DEBUG       ?= ON
 
