@@ -6,6 +6,8 @@
   ITA top module.
 */
 
+`include "ita_package.sv"
+
 module ita
   import ita_package::*;
 (

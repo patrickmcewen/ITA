@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: SHL-0.51
 
 
+`include "ita_package.sv"
+
 module ita_softmax_top
   import ita_package::*;
 (

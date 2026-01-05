@@ -2,6 +2,8 @@
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 
+`include "ita_package.sv"
+
 module ita_max_finder
   import ita_package::*;
 (
@@ -15,9 +17,9 @@ module ita_max_finder
 );
 
   // find maximum
-  requant_t [N/2-1:0] max_tmp;
-  requant_t [N/4-1:0] max_tmp2;
-  requant_t [N/8-1:0] max_tmp3;
+  requant_t max_tmp[N/2-1:0];
+  requant_t max_tmp2[N/4-1:0];
+  requant_t max_tmp3[N/8-1:0];
   requant_t max_tmp4;
 
   always_comb begin

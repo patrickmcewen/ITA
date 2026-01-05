@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: SHL-0.51
 
 
+`include "ita_package.sv"
+
 module ita_fifo_controller
   import ita_package::*;
 (
