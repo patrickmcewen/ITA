@@ -77,31 +77,7 @@ class ITAHWPEBlackBox(params: ITAHWPEParams) extends BlackBox with HasBlackBoxRe
   })
 
   // Add required SystemVerilog resources
-  // Package must be added FIRST - all other modules import it
-  addResource("/vsrc/cf_math_pkg.sv")
-  addResource("/vsrc/ita_package.sv")
-  addResource("/vsrc/hwpe/ita_hwpe_package.sv")
-  
-  // Main wrapper module
-  addResource("/vsrc/hwpe/ita_hwpe_wrap.sv")
-  addResource("/vsrc/hwpe/ita_hwpe_top.sv")
-  
-  // Sub-modules required by ita_hwpe_top
-  addResource("/vsrc/hwpe/ita_hwpe_ctrl.sv")
-  addResource("/vsrc/hwpe/ita_hwpe_streamer.sv")
-  addResource("/vsrc/hwpe/ita_hwpe_engine.sv")
-  addResource("/vsrc/hwpe/ita_hwpe_input_buffer.sv")
-  addResource("/vsrc/hwpe/ita_hwpe_input_bias_buffer.sv")
-  addResource("/vsrc/hwpe/ita_hwpe_input_bias_fence.sv")
-  addResource("/vsrc/hwpe/ita_hwpe_output_buffer.sv")
-  
-
-  
-  // Common cells modules (from PULP/common cells or simulation stubs)
-  addResource("/vsrc/fifo_v3.sv")
-  addResource("/vsrc/tc_sram.sv")
-  addResource("/vsrc/lzc.sv")
-  addResource("/vsrc/cluster_clock_gating.sv")
+  addResource("/vsrc/hwpe/ita_hwpe_aggregated.sv")
 
   // Set parameters
   override def desiredName = s"ita_hwpe_wrap"
@@ -167,12 +143,17 @@ class ITAHWPETL(params: ITAHWPEParams, beatBytes: Int)(implicit p: Parameters) e
       impl.io.periph_id_i   := periphIdReg
 
       // Address planning to keep blocks contiguous
+      // Note: Registers wider than 4 bytes must be 8-byte aligned
       val tcdmAddBase   = 0x20
       val tcdmBeBase    = tcdmAddBase + params.MP * 4
-      val tcdmBeStart   = tcdmBeBase + 4
-      val tcdmDataBase  = tcdmBeStart + params.MP * 4
-      val tcdmRDataBase = tcdmDataBase + params.MP * 4
-      val tcdmRValidOff = tcdmRDataBase + params.MP * 4
+      // Round up to next 8-byte boundary for 64-bit registers
+      val tcdmBeStart   = ((tcdmBeBase + 4 + 7) / 8) * 8
+      // tcdmBeStart registers are 8 bytes wide, so space them 8 bytes apart
+      val tcdmDataBase  = tcdmBeStart + params.MP * 8
+      // tcdmDataBase registers are 8 bytes wide (64 bits), so space them 8 bytes apart
+      val tcdmRDataBase = tcdmDataBase + params.MP * 8
+      // tcdmRDataBase registers are 8 bytes wide (64 bits), so space them 8 bytes apart
+      val tcdmRValidOff = tcdmRDataBase + params.MP * 8
       val periphBase    = tcdmRValidOff + 4
 
       val regFields =
@@ -189,13 +170,13 @@ class ITAHWPETL(params: ITAHWPEParams, beatBytes: Int)(implicit p: Parameters) e
           tcdmBeBase -> Seq(RegField.r(params.MP, impl.io.tcdm_wen_o.asUInt))
         ) ++
         (0 until params.MP).map { i =>
-          (tcdmBeStart + i * 4) -> Seq(RegField.r(params.MemDataWidth/8, impl.io.tcdm_be_o(i)))
+          (tcdmBeStart + i * 8) -> Seq(RegField.r(params.MemDataWidth/8, impl.io.tcdm_be_o(i)))
         } ++
         (0 until params.MP).map { i =>
-          (tcdmDataBase + i * 4) -> Seq(RegField.r(params.MemDataWidth, impl.io.tcdm_data_o(i)))
+          (tcdmDataBase + i * 8) -> Seq(RegField.r(params.MemDataWidth, impl.io.tcdm_data_o(i)))
         } ++
         (0 until params.MP).map { i =>
-          (tcdmRDataBase + i * 4) -> Seq(RegField.w(params.MemDataWidth, tcdmRDataReg(i)))
+          (tcdmRDataBase + i * 8) -> Seq(RegField.w(params.MemDataWidth, tcdmRDataReg(i)))
         } ++
         Seq(
           tcdmRValidOff -> Seq(RegField.w(params.MP, tcdmRValidReg)),
@@ -221,20 +202,22 @@ trait CanHavePeripheryITAHWPE { this: BaseSubsystem =>
   private val portName = "ita"
   private val pbus = locateTLBusWrapper(PBUS)
 
-  val ita_hwpe_busy: Option[Bool] = p(ITAHWPEKey) match {
-    case Some(params: ITAHWPEParams) =>
-      val ita_hwpe = LazyModule(new ITAHWPETL(params, pbus.beatBytes)(p))
-      ita_hwpe.clockNode := pbus.fixedClockNode
-      pbus.coupleTo(portName) {
-        TLInwardClockCrossingHelper("ita_hwpe_crossing", ita_hwpe, ita_hwpe.node)(SynchronousCrossing()) :=
-          TLFragmenter(pbus.beatBytes, pbus.blockBytes) := _
-      }
-      Some(InModuleBody {
-        val busy = IO(Output(Bool())).suggestName("ita_hwpe_busy")
-        busy := ita_hwpe.module.io.ita_busy
-        busy
-      })
-    case None => None
+  private val ita_hwpe_inst = p(ITAHWPEKey).map { params =>
+    val ita_hwpe = LazyModule(new ITAHWPETL(params, pbus.beatBytes)(p))
+    ita_hwpe.clockNode := pbus.fixedClockNode
+    pbus.coupleTo(portName) {
+      TLInwardClockCrossingHelper("ita_hwpe_crossing", ita_hwpe, ita_hwpe.node)(SynchronousCrossing()) :=
+        TLFragmenter(pbus.beatBytes, pbus.blockBytes) := _
+    }
+    ita_hwpe
+  }
+
+  val ita_hwpe_busy = ita_hwpe_inst.map { ita_hwpe =>
+    InModuleBody {
+      val busy = IO(Output(Bool())).suggestName("ita_hwpe_busy")
+      busy := ita_hwpe.module.io.ita_busy
+      busy
+    }
   }
 }
 
