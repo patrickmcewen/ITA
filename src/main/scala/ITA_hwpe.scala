@@ -77,10 +77,11 @@ class ITAHWPEBlackBox(params: ITAHWPEParams) extends BlackBox with HasBlackBoxRe
   })
 
   // Add required SystemVerilog resources
+  // Package must be added FIRST - all other modules import it
   addResource("/vsrc/hwpe/ita_hwpe_aggregated.sv")
 
   // Set parameters
-  override def desiredName = s"ita_hwpe_wrap"
+  override def desiredName = s"ITAHWPEBlackBox"
   
   // Add parameters as Verilog parameters
   val moduleName = desiredName
@@ -88,7 +89,8 @@ class ITAHWPEBlackBox(params: ITAHWPEParams) extends BlackBox with HasBlackBoxRe
     "AccDataWidth" -> IntParam(params.AccDataWidth),
     "IdWidth" -> IntParam(params.IdWidth),
     "MemDataWidth" -> IntParam(params.MemDataWidth),
-    "MP" -> IntParam(params.MP)
+    "MP" -> IntParam(params.MP),
+    "N_CORES" -> IntParam(params.N_CORES)
   )
 }
 
@@ -144,7 +146,8 @@ class ITAHWPETL(params: ITAHWPEParams, beatBytes: Int)(implicit p: Parameters) e
 
       // Address planning to keep blocks contiguous
       // Note: Registers wider than 4 bytes must be 8-byte aligned
-      val tcdmAddBase   = 0x20
+      // Event registers take N_CORES * 4 bytes, then TCDM req/gnt at N_CORES * 4
+      val tcdmAddBase   = (params.N_CORES * 4) + 8  // After events (N_CORES * 4) and TCDM req/gnt (8 bytes)
       val tcdmBeBase    = tcdmAddBase + params.MP * 4
       // Round up to next 8-byte boundary for 64-bit registers
       val tcdmBeStart   = ((tcdmBeBase + 4 + 7) / 8) * 8
@@ -157,11 +160,14 @@ class ITAHWPETL(params: ITAHWPEParams, beatBytes: Int)(implicit p: Parameters) e
       val periphBase    = tcdmRValidOff + 4
 
       val regFields =
+        // Event outputs - one register per core (2 bits each, spaced 4 bytes apart)
+        (0 until params.N_CORES).map { i =>
+          (i * 4) -> Seq(RegField.r(2, impl.io.evt_o(i)))
+        } ++
         Seq(
-          0x00 -> Seq(RegField.r(2, impl.io.evt_o(0))),
-          0x04 -> Seq(RegField.r(2, impl.io.evt_o(1))),
-          0x08 -> Seq(RegField.r(params.MP, impl.io.tcdm_req_o.asUInt)),
-          0x0C -> Seq(RegField.w(params.MP, tcdmGntReg))
+          // Start TCDM registers after all event registers
+          (params.N_CORES * 4) -> Seq(RegField.r(params.MP, impl.io.tcdm_req_o.asUInt)),
+          (params.N_CORES * 4 + 4) -> Seq(RegField.w(params.MP, tcdmGntReg))
         ) ++
         (0 until params.MP).map { i =>
           (tcdmAddBase + i * 4) -> Seq(RegField.r(32, impl.io.tcdm_add_o(i)))

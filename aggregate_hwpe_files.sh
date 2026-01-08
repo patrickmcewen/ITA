@@ -8,6 +8,45 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VSRC_DIR="${SCRIPT_DIR}/src/main/resources/vsrc"
 OUTPUT_FILE="${VSRC_DIR}/hwpe/ita_hwpe_aggregated.sv"
 
+# List of files to exclude (files that cause import issues or are not needed)
+# Add files here using basename or full path patterns
+# 
+# Matching rules:
+#   - Basename match: "problematic_file.sv" matches any file with this name
+#   - Path pattern: "*/problematic_dir/*" matches all files in this directory
+#   - Substring match: "*xpm_memory*" matches any file containing "xpm_memory" in path
+#
+# Examples:
+#   "xpm_memory_tdpram.sv"           - excludes any file named xpm_memory_tdpram.sv
+#   "xpm_memory_spram.sv"             - excludes any file named xpm_memory_spram.sv
+#   "*/fpga_scm/register_file_1r_1w*" - excludes register files in fpga_scm directory
+#
+EXCLUDE_FILES=(
+    # Add excluded files here, one per line
+    # Uncomment and add files as needed:
+    "*/tc_sram_xilinx.sv"
+    "*/fpga_scm/register_file_1r_1w_be.sv"
+)
+
+# Function to check if a file should be excluded
+should_exclude_file() {
+    local file="$1"
+    local basename_file=$(basename "${file}")
+    local rel_path="${file#${SCRIPT_DIR}/}"
+    
+    for exclude_pattern in "${EXCLUDE_FILES[@]}"; do
+        # Check if basename matches
+        if [[ "${basename_file}" == "${exclude_pattern}" ]]; then
+            return 0  # Should exclude
+        fi
+        # Check if path pattern matches (supports wildcards)
+        if [[ "${rel_path}" == ${exclude_pattern} ]] || [[ "${file}" == *"${exclude_pattern}"* ]]; then
+            return 0  # Should exclude
+        fi
+    done
+    return 1  # Should not exclude
+}
+
 # Create output file
 > "${OUTPUT_FILE}"
 
@@ -20,6 +59,13 @@ echo "" >> "${OUTPUT_FILE}"
 append_file() {
     local file="$1"
     local desc="$2"
+    
+    # Check if file should be excluded
+    if should_exclude_file "${file}"; then
+        echo "Skipping excluded file: ${file}" >&2
+        return 0
+    fi
+    
     if [ -f "${file}" ]; then
         echo "// ============================================================================" >> "${OUTPUT_FILE}"
         echo "// ${desc}" >> "${OUTPUT_FILE}"
@@ -28,6 +74,8 @@ append_file() {
         # Remove include statements for files we've already aggregated
         # This prevents macro redefinition errors
         # Match any whitespace before `include and handle both single and double quotes
+        # NOTE: We do NOT remove import statements - they are needed inside modules
+        # even though packages are already included, modules need explicit imports
         sed -e '/[[:space:]]*`include[[:space:]]*"common_cells\/assertions.svh"/d' \
             -e '/[[:space:]]*`include[[:space:]]*"common_cells\/registers.svh"/d' \
             -e '/[[:space:]]*`include[[:space:]]*"hwpe_stream_package.sv"/d' \
@@ -37,6 +85,7 @@ append_file() {
             -e '/[[:space:]]*`include[[:space:]]*"ita_hwpe_package.sv"/d' \
             -e '/[[:space:]]*`include[[:space:]]*"ita_package.sv"/d' \
             -e '/[[:space:]]*`include[[:space:]]*"cf_math_pkg.sv"/d' \
+            -e '/[[:space:]]*`include[[:space:]]*"parameters.v"/d' \
             "${file}" >> "${OUTPUT_FILE}"
         echo "" >> "${OUTPUT_FILE}"
         echo "" >> "${OUTPUT_FILE}"
@@ -49,117 +98,276 @@ append_file() {
 echo "Adding Bender package files..."
 BENDER_DIR="${SCRIPT_DIR}/.bender/git/checkouts"
 
-# Function to append bender files, excluding testbenches and deprecated
-append_bender_files() {
-    local package_dir="$1"
-    local desc="$2"
-    if [ -d "${package_dir}" ]; then
-        # Find all .sv, .svh, .v files, excluding testbench and deprecated directories
-        local files=$(find "${package_dir}" -type f \( -name "*.sv" -o -name "*.svh" -o -name "*.v" \) \
-            ! -path "*/TB/*" ! -path "*/tb/*" ! -path "*/test/*" ! -path "*/verif/*" \
-            ! -path "*/deprecated/*" ! -path "*/formal/*" ! -path "*/sim/*" \
-            | sort)
-        
-        if [ -n "${files}" ]; then
-            echo "Processing ${desc}..."
-            for file in ${files}; do
-                local rel_path=$(echo "${file}" | sed "s|${package_dir}/||")
-                echo "  Adding: ${rel_path}"
-                append_file "${file}" "${desc} - ${rel_path}"
-            done
+# Common find exclusions for testbenches and deprecated files
+FIND_EXCLUSIONS="! -path \"*/TB/*\" ! -path \"*/tb/*\" ! -path \"*/test/*\" ! -path \"*/verif/*\" ! -path \"*/deprecated/*\" ! -path \"*/formal/*\" ! -path \"*/sim/*\""
+
+# Function to find a Bender directory by pattern
+find_bender_dir() {
+    local pattern="$1"
+    find "${BENDER_DIR}" -maxdepth 1 -type d -name "${pattern}" 2>/dev/null | head -1
+}
+
+# Function to find files in a directory with standard exclusions
+find_files() {
+    local dir="$1"
+    local exclude_names="$2"
+    if [ ! -d "${dir}" ]; then
+        return 1
+    fi
+    
+    local find_cmd="find \"${dir}\" -type f \\( -name \"*.sv\" -o -name \"*.svh\" -o -name \"*.v\" \\)"
+    find_cmd="${find_cmd} ${FIND_EXCLUSIONS}"
+    if [ -n "${exclude_names}" ]; then
+        find_cmd="${find_cmd} ${exclude_names}"
+    fi
+    find_cmd="${find_cmd} | sort"
+    
+    # Filter out excluded files
+    local files=$(eval "${find_cmd}")
+    local filtered_files=""
+    for file in ${files}; do
+        if ! should_exclude_file "${file}"; then
+            if [ -z "${filtered_files}" ]; then
+                filtered_files="${file}"
+            else
+                filtered_files="${filtered_files}"$'\n'"${file}"
+            fi
         fi
+    done
+    echo "${filtered_files}"
+}
+
+# Function to find a specific file in a directory
+find_file() {
+    local dir="$1"
+    local filename="$2"
+    if [ -d "${dir}" ]; then
+        eval "find \"${dir}\" -name \"${filename}\" -type f ${FIND_EXCLUSIONS} 2>/dev/null | head -1"
     fi
 }
 
+# Function to add directory files with priority files first
+# Usage: add_dir_with_priority <dir> <desc> <priority_file1> [priority_file2] ...
+add_dir_with_priority() {
+    local dir="$1"
+    local desc="$2"
+    shift 2
+    local priority_files=("$@")
+    
+    if [ ! -d "${dir}" ]; then
+        return 1
+    fi
+    
+    # Add priority files first
+    local exclude_names=""
+    for priority_file in "${priority_files[@]}"; do
+        if [ -n "${priority_file}" ] && [ -f "${priority_file}" ]; then
+            local rel_path=$(echo "${priority_file}" | sed "s|${dir}/||")
+            echo "Adding ${rel_path} FIRST..."
+            append_file "${priority_file}" "${desc} - ${rel_path}"
+            local pkg_name=$(basename "${priority_file}")
+            if [ -z "${exclude_names}" ]; then
+                exclude_names="! -name \"${pkg_name}\""
+            else
+                exclude_names="${exclude_names} ! -name \"${pkg_name}\""
+            fi
+        fi
+    done
+    
+    # Add remaining files
+    local files=$(find_files "${dir}" "${exclude_names}")
+    if [ -n "${files}" ]; then
+        if [ ${#priority_files[@]} -gt 0 ]; then
+            echo "Processing ${desc} - remaining files..."
+        else
+            echo "Processing ${desc}..."
+        fi
+        # Handle files with newlines properly
+        while IFS= read -r file || [ -n "${file}" ]; do
+            [ -z "${file}" ] && continue
+            local rel_path=$(echo "${file}" | sed "s|${dir}/||")
+            echo "  Adding: ${rel_path}"
+            append_file "${file}" "${desc} - ${rel_path}"
+        done <<< "${files}"
+    fi
+}
+
+# Function to append bender files, excluding testbenches and deprecated
+# This function processes package files FIRST, then other files
+append_bender_files() {
+    local package_dir="$1"
+    local desc="$2"
+    if [ ! -d "${package_dir}" ]; then
+        return 1
+    fi
+    
+    # First, extract and add package files (they must come first)
+    local package_files=()
+    for pkg_pattern in "*_package.sv" "*_pkg.sv" "*package*.sv"; do
+        local pkg_file=$(find_file "${package_dir}" "${pkg_pattern}")
+        if [ -n "${pkg_file}" ] && [ -f "${pkg_file}" ]; then
+            # Check if we haven't already added this file
+            local already_added=0
+            for existing in "${package_files[@]}"; do
+                if [ "${existing}" = "${pkg_file}" ]; then
+                    already_added=1
+                    break
+                fi
+            done
+            if [ ${already_added} -eq 0 ]; then
+                package_files+=("${pkg_file}")
+            fi
+        fi
+    done
+    
+    # Use the common function to add files with packages first
+    add_dir_with_priority "${package_dir}" "${desc}" "${package_files[@]}"
+}
+
 # Add Bender packages in dependency order
-# 1. common_cells (base utilities)
-if [ -d "${BENDER_DIR}/cluster_interconnect-"* ]; then
-    append_bender_files "${BENDER_DIR}/cluster_interconnect-"* "Cluster interconnect (Bender)"
-fi
+# CRITICAL: Packages must be added in dependency order - dependencies first!
 
-if [ -d "${BENDER_DIR}/common_cells-"* ]; then
-    append_bender_files "${BENDER_DIR}/common_cells-"* "Common cells (Bender)"
-fi
-
-# 4. hci (HCI package)
-if [ -d "${BENDER_DIR}/hci-"* ]; then
-    append_bender_files "${BENDER_DIR}/hci-"* "HCI (Bender)"
-fi
-
-# 2. hwpe-stream (stream package)
-if [ -d "${BENDER_DIR}/hwpe-stream-"* ]; then
-    append_bender_files "${BENDER_DIR}/hwpe-stream-"* "HWPE stream (Bender)"
-fi
-
-# 3. hwpe-ctrl (control package)
-if [ -d "${BENDER_DIR}/hwpe-ctrl-"* ]; then
-    append_bender_files "${BENDER_DIR}/hwpe-ctrl-"* "HWPE ctrl (Bender)"
-fi
-
-# 5. Other Bender packages that might be needed
-if [ -d "${BENDER_DIR}/scm-"* ]; then
-    append_bender_files "${BENDER_DIR}/scm-"* "SCM (Bender)"
-fi
-
-if [ -d "${BENDER_DIR}/tech_cells_generic-"* ]; then
-    append_bender_files "${BENDER_DIR}/tech_cells_generic-"* "Tech cells generic (Bender)"
-fi
-
-# Step 1: Base packages (no dependencies)
+# Step 1: Base packages (no dependencies) - add these FIRST
 echo "Adding base packages..."
-append_file "${VSRC_DIR}/cf_math_pkg.sv" "Base math package"
+common_cells_dir=$(find_bender_dir "common_cells-*")
+if [ -n "${common_cells_dir}" ]; then
+    # Extract base packages first
+    cf_math_file=$(find_file "${common_cells_dir}" "cf_math_pkg.sv")
+    ecc_pkg_file=$(find_file "${common_cells_dir}" "ecc_pkg.sv")
+    
+    if [ -n "${cf_math_file}" ] && [ -f "${cf_math_file}" ]; then
+        append_file "${cf_math_file}" "cf_math_pkg (from common_cells)"
+    fi
+    if [ -n "${ecc_pkg_file}" ] && [ -f "${ecc_pkg_file}" ]; then
+        append_file "${ecc_pkg_file}" "ecc_pkg (from common_cells)"
+    fi
+fi
+
+# Add local base packages (skip cf_math_pkg if we already got it from Bender)
+if [ -f "${VSRC_DIR}/cf_math_pkg.sv" ] && [ -z "${cf_math_file}" ]; then
+    append_file "${VSRC_DIR}/cf_math_pkg.sv" "Base math package (local)"
+fi
 append_file "${VSRC_DIR}/ita_package.sv" "ITA package"
 
-# Step 2: Common cells (needed by various modules)
-echo "Adding common cells..."
-append_file "${VSRC_DIR}/fifo_v3.sv" "FIFO common cell"
-append_file "${VSRC_DIR}/tc_sram.sv" "SRAM common cell"
-append_file "${VSRC_DIR}/lzc.sv" "Leading zero counter"
-append_file "${VSRC_DIR}/cluster_clock_gating.sv" "Clock gating cell"
+# Step 2: common_cells (base utilities) - but skip packages we already added
+if [ -n "${common_cells_dir}" ]; then
+    exclude_names="! -name \"cf_math_pkg.sv\" ! -name \"ecc_pkg.sv\""
+    files=$(find_files "${common_cells_dir}" "${exclude_names}")
+    if [ -n "${files}" ]; then
+        echo "Processing Common cells (Bender) - remaining files..."
+        while IFS= read -r file || [ -n "${file}" ]; do
+            [ -z "${file}" ] && continue
+            rel_path=$(echo "${file}" | sed "s|${common_cells_dir}/||")
+            echo "  Adding: ${rel_path}"
+            append_file "${file}" "Common cells (Bender) - ${rel_path}"
+        done <<< "${files}"
+    fi
+fi
 
-# Step 3: HWPE stream package (no dependencies on other hwpe packages)
-echo "Adding hwpe_stream_package..."
-append_file "${VSRC_DIR}/hwpe/hwpe_stream_package.sv" "HWPE stream package"
+# Step 3: hwpe-stream (stream package) - must be before hci_package
+hwpe_stream_dir=$(find_bender_dir "hwpe-stream-*")
+if [ -n "${hwpe_stream_dir}" ]; then
+    hwpe_stream_pkg=$(find_file "${hwpe_stream_dir}" "hwpe_stream_package.sv")
+    add_dir_with_priority "${hwpe_stream_dir}" "HWPE stream (Bender)" "${hwpe_stream_pkg}"
+fi
 
-# Step 4: HWPE ctrl package (may depend on hwpe_stream)
-echo "Adding hwpe_ctrl_package..."
-append_file "${VSRC_DIR}/hwpe/hwpe_ctrl_package.sv" "HWPE control package"
+# Step 4: hwpe-ctrl (control package)
+hwpe_ctrl_dir=$(find_bender_dir "hwpe-ctrl-*")
+if [ -n "${hwpe_ctrl_dir}" ]; then
+    hwpe_ctrl_pkg=$(find_file "${hwpe_ctrl_dir}" "hwpe_ctrl_package.sv")
+    add_dir_with_priority "${hwpe_ctrl_dir}" "HWPE ctrl (Bender)" "${hwpe_ctrl_pkg}"
+fi
 
-# Step 5: HCI helpers (macros and interfaces)
-echo "Adding hci_helpers..."
-append_file "${VSRC_DIR}/hwpe/hci_helpers.svh" "HCI helper macros and interfaces"
+# Step 5: hci (HCI package) - depends on hwpe_stream_package
+# Exclude interconnect modules - ITA doesn't use them and they depend on cluster_interconnect
+hci_dir=$(find_bender_dir "hci-*")
+if [ -n "${hci_dir}" ]; then
+    hci_pkg=$(find_file "${hci_dir}" "hci_package.sv")
+    hci_helpers=$(find_file "${hci_dir}" "hci_helpers.svh")
+    
+    # Add package and helpers first
+    if [ -n "${hci_pkg}" ] && [ -f "${hci_pkg}" ]; then
+        echo "Adding hci_package FIRST..."
+        append_file "${hci_pkg}" "hci_package (from hci)"
+    fi
+    if [ -n "${hci_helpers}" ] && [ -f "${hci_helpers}" ]; then
+        echo "Adding hci_helpers..."
+        append_file "${hci_helpers}" "hci_helpers (from hci)"
+    fi
+    
+    # Add remaining HCI files, excluding interconnect modules
+    exclude_names="! -name \"hci_package.sv\" ! -name \"hci_helpers.svh\""
+    exclude_names="${exclude_names} ! -name \"hci_interconnect.sv\""
+    exclude_names="${exclude_names} ! -name \"hci_log_interconnect.sv\""
+    exclude_names="${exclude_names} ! -name \"hci_log_interconnect_l2.sv\""
+    exclude_names="${exclude_names} ! -name \"hci_new_log_interconnect.sv\""
+    exclude_names="${exclude_names} ! -path \"*/interco/*\""
+    
+    files=$(find_files "${hci_dir}" "${exclude_names}")
+    if [ -n "${files}" ]; then
+        echo "Processing HCI (Bender) - core modules only (excluding interconnect)..."
+        while IFS= read -r file || [ -n "${file}" ]; do
+            [ -z "${file}" ] && continue
+            rel_path=$(echo "${file}" | sed "s|${hci_dir}/||")
+            echo "  Adding: ${rel_path}"
+            append_file "${file}" "HCI (Bender) - ${rel_path}"
+        done <<< "${files}"
+    fi
+fi
 
-# Step 6: HCI package (depends on hwpe_stream_package)
-echo "Adding hci_package..."
-echo "// ============================================================================" >> "${OUTPUT_FILE}"
-echo "// HCI package (depends on hwpe_stream_package)" >> "${OUTPUT_FILE}"
-echo "// Source: ${VSRC_DIR}/hwpe/hci_package.sv" >> "${OUTPUT_FILE}"
-echo "// ============================================================================" >> "${OUTPUT_FILE}"
-# Remove the include directive since hwpe_stream_package is already included above
-sed '/^`include "hwpe_stream_package.sv"/d' "${VSRC_DIR}/hwpe/hci_package.sv" >> "${OUTPUT_FILE}"
-echo "" >> "${OUTPUT_FILE}"
-echo "" >> "${OUTPUT_FILE}"
+# Step 6: Other Bender packages that might be needed
+scm_dir=$(find_bender_dir "scm-*")
+if [ -n "${scm_dir}" ]; then
+    append_bender_files "${scm_dir}" "SCM (Bender)"
+fi
 
-# Step 7: ITA HWPE package (depends on hci_package and ita_package)
+tech_cells_dir=$(find_bender_dir "tech_cells_generic-*")
+if [ -n "${tech_cells_dir}" ]; then
+    append_bender_files "${tech_cells_dir}" "Tech cells generic (Bender)"
+fi
+
+# Skip cluster_interconnect - ITA HWPE doesn't use it
+# It's only needed by HCI interconnect modules which ITA doesn't use
+# cluster_interconnect_dir=$(find_bender_dir "cluster_interconnect-*")
+# if [ -n "${cluster_interconnect_dir}" ]; then
+#     # Extract parameters.v first - many files in cluster_interconnect depend on it
+#     parameters_file=$(find_file "${cluster_interconnect_dir}" "parameters.v")
+#     add_dir_with_priority "${cluster_interconnect_dir}" "Cluster interconnect (Bender)" "${parameters_file}"
+# fi
+
+# Step 7: Local common cells (if they exist and aren't in Bender)
+echo "Adding local common cells..."
+if [ -f "${VSRC_DIR}/fifo_v3.sv" ]; then
+    append_file "${VSRC_DIR}/fifo_v3.sv" "FIFO common cell (local)"
+fi
+if [ -f "${VSRC_DIR}/cluster_clock_gating.sv" ]; then
+    append_file "${VSRC_DIR}/cluster_clock_gating.sv" "Clock gating cell (local)"
+fi
+
+# Step 8: ITA HWPE package (depends on hci_package and ita_package)
 echo "Adding ita_hwpe_package..."
 append_file "${VSRC_DIR}/hwpe/ita_hwpe_package.sv" "ITA HWPE package"
 
-# Step 8: ITA HWPE modules (in dependency order)
-echo "Adding ITA HWPE modules..."
-
-# Function to append file without includes/imports
+# Function to append file without includes/imports (needed for ITA core and HWPE modules)
 append_file_no_includes() {
     local file="$1"
     local desc="$2"
+    
+    # Check if file should be excluded
+    if should_exclude_file "${file}"; then
+        echo "Skipping excluded file: ${file}" >&2
+        return 0
+    fi
+    
     if [ -f "${file}" ]; then
         echo "// ============================================================================" >> "${OUTPUT_FILE}"
         echo "// ${desc}" >> "${OUTPUT_FILE}"
         echo "// Source: ${file}" >> "${OUTPUT_FILE}"
         echo "// ============================================================================" >> "${OUTPUT_FILE}"
-        # Remove include directives and import statements (they're already included above)
-        # Also remove includes for files we've already aggregated
+        # Remove include directives (they're already included above)
+        # NOTE: We keep import statements - modules need explicit imports even though
+        # packages are already included in the aggregated file
         sed -e '/^`include/d' \
-            -e '/^import/d' \
             "${file}" >> "${OUTPUT_FILE}"
         echo "" >> "${OUTPUT_FILE}"
         echo "" >> "${OUTPUT_FILE}"
@@ -167,6 +375,38 @@ append_file_no_includes() {
         echo "Warning: File not found: ${file}" >&2
     fi
 }
+
+# Step 8.5: ITA core modules (needed by ITA HWPE modules)
+echo "Adding ITA core modules..."
+# Register files first (needed by other modules)
+append_file_no_includes "${VSRC_DIR}/ita_register_file_1w_1r_double_width_write.sv" "ITA register file 1w 1r double width write"
+append_file_no_includes "${VSRC_DIR}/ita_register_file_1w_multi_port_read.sv" "ITA register file 1w multi port read"
+append_file_no_includes "${VSRC_DIR}/ita_register_file_1w_multi_port_read_we.sv" "ITA register file 1w multi port read we"
+# Core ITA sub-modules (in dependency order)
+append_file_no_includes "${VSRC_DIR}/ita_dotp.sv" "ITA dot product"
+append_file_no_includes "${VSRC_DIR}/ita_accumulator.sv" "ITA accumulator"
+append_file_no_includes "${VSRC_DIR}/ita_max_finder.sv" "ITA max finder"
+append_file_no_includes "${VSRC_DIR}/ita_serdiv.sv" "ITA serial divider"
+append_file_no_includes "${VSRC_DIR}/ita_gelu.sv" "ITA GELU"
+append_file_no_includes "${VSRC_DIR}/ita_relu.sv" "ITA ReLU"
+append_file_no_includes "${VSRC_DIR}/ita_softmax.sv" "ITA softmax"
+append_file_no_includes "${VSRC_DIR}/ita_softmax_top.sv" "ITA softmax top"
+append_file_no_includes "${VSRC_DIR}/ita_activation.sv" "ITA activation"
+append_file_no_includes "${VSRC_DIR}/ita_requantizer.sv" "ITA requantizer"
+append_file_no_includes "${VSRC_DIR}/ita_requantization_controller.sv" "ITA requantization controller"
+append_file_no_includes "${VSRC_DIR}/ita_input_sampler.sv" "ITA input sampler"
+append_file_no_includes "${VSRC_DIR}/ita_inp1_mux.sv" "ITA input 1 mux"
+append_file_no_includes "${VSRC_DIR}/ita_inp2_mux.sv" "ITA input 2 mux"
+append_file_no_includes "${VSRC_DIR}/ita_sumdotp.sv" "ITA sum dot product"
+append_file_no_includes "${VSRC_DIR}/ita_fifo_controller.sv" "ITA FIFO controller"
+append_file_no_includes "${VSRC_DIR}/ita_output_controller.sv" "ITA output controller"
+append_file_no_includes "${VSRC_DIR}/ita_weight_controller.sv" "ITA weight controller"
+append_file_no_includes "${VSRC_DIR}/ita_controller.sv" "ITA controller"
+# Main ITA module (depends on all sub-modules)
+append_file_no_includes "${VSRC_DIR}/ita.sv" "ITA main module"
+
+# Step 9: ITA HWPE modules (in dependency order)
+echo "Adding ITA HWPE modules..."
 
 # Modules in dependency order (dependencies first)
 append_file_no_includes "${VSRC_DIR}/hwpe/ita_hwpe_engine.sv" "ITA HWPE engine"
@@ -178,6 +418,7 @@ append_file_no_includes "${VSRC_DIR}/hwpe/ita_hwpe_ctrl.sv" "ITA HWPE controller
 append_file_no_includes "${VSRC_DIR}/hwpe/ita_hwpe_streamer.sv" "ITA HWPE streamer"
 append_file_no_includes "${VSRC_DIR}/hwpe/ita_hwpe_top.sv" "ITA HWPE top module"
 append_file_no_includes "${VSRC_DIR}/hwpe/ita_hwpe_wrap.sv" "ITA HWPE wrapper"
+append_file_no_includes "${VSRC_DIR}/hwpe/ITAHWPEBlackBox.sv" "ITA HWPE blackbox"
 
 echo "Aggregation complete: ${OUTPUT_FILE}"
 echo "Total lines: $(wc -l < "${OUTPUT_FILE}")"
