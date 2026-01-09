@@ -14,7 +14,7 @@ export SIM_PATH=modelsim/$buildpath
 # Set to -gui to use the GUI of QuestaSim
 export vsim_flags=-c
 
-export target=ita_tb
+export target=ita_hwpe_tb
 export no_stalls=0
 export s=64
 export e=64
