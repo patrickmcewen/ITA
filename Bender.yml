@@ -30,56 +30,9 @@ frozen: false
 # List of source files in this package. Optional.
 sources:
   # Individual source files are simple string entries:
-  - src/ita_package.sv
-  - src/ita_accumulator.sv
-  - src/ita_controller.sv
-  - src/ita_dotp.sv
-  - src/ita_fifo_controller.sv
-  - src/ita_inp1_mux.sv
-  - src/ita_inp2_mux.sv
-  - src/ita_input_sampler.sv
-  - src/ita_output_controller.sv
-  - src/ita_register_file_1w_1r_double_width_write.sv
-  - src/ita_register_file_1w_multi_port_read.sv
-  - src/ita_register_file_1w_multi_port_read_we.sv
-  - src/ita_requantizer.sv
-  - src/ita_serdiv.sv
-  - src/ita_softmax.sv
-  - src/ita_softmax_top.sv
-  - src/ita_sumdotp.sv
-  - src/ita_weight_controller.sv
-  - src/ita.sv
-  - src/ita_max_finder.sv
-  - src/ita_gelu.sv
-  - src/ita_relu.sv
-  - src/ita_activation.sv
-  - src/ita_requantization_controller.sv
-
-  # HWPE sources
-  - target: ita_hwpe
-    files:
-      - src/hwpe/ita_hwpe_package.sv
-      - src/hwpe/ita_hwpe_ctrl.sv
-      - src/hwpe/ita_hwpe_engine.sv
-      - src/hwpe/ita_hwpe_input_buffer.sv
-      - src/hwpe/ita_hwpe_input_bias_buffer.sv
-      - src/hwpe/ita_hwpe_input_bias_fence.sv
-      - src/hwpe/ita_hwpe_output_buffer.sv
-      - src/hwpe/ita_hwpe_streamer.sv
-      - src/hwpe/ita_hwpe_top.sv
-      - src/hwpe/ita_hwpe_wrap.sv
-
-  # Level 1
-  # TB sources
-  - target: test
-    files:
-      - src/tb/ita_tb.sv
-      - src/tb/clk_rst_gen.sv
-      - src/tb/rst_gen.sv
-      - src/tb/activation_tb.sv
-
-  # HWPE TB sources
-  - target: ita_hwpe_test
-    files:
-      - src/hwpe/tb/tb_dummy_memory.sv
-      - src/hwpe/tb/ita_hwpe_tb.sv
+  - src/main/resources/vsrc/hwpe/ita_hwpe_aggregated.sv
+  - src/main/resources/vsrc/hwpe/tb/ita_hwpe_tb.sv
+  - src/main/resources/vsrc/hwpe/tb/tb_dummy_memory.sv
+  # Testbench utilities needed by ita_hwpe_tb
+  - src/main/resources/vsrc/tb/clk_rst_gen.sv
+  - src/main/resources/vsrc/tb/rst_gen.sv
