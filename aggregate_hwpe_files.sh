@@ -249,6 +249,11 @@ if [ -f "${VSRC_DIR}/cf_math_pkg.sv" ] && [ -z "${cf_math_file}" ]; then
 fi
 append_file "${VSRC_DIR}/ita_package.sv" "ITA package"
 
+# Add cluster_clock_gating early (needed by register files)
+if [ -f "${VSRC_DIR}/cluster_clock_gating.sv" ]; then
+    append_file "${VSRC_DIR}/cluster_clock_gating.sv" "Clock gating cell (local)"
+fi
+
 # Step 2: common_cells (base utilities) - but skip packages we already added
 if [ -n "${common_cells_dir}" ]; then
     exclude_names="! -name \"cf_math_pkg.sv\" ! -name \"ecc_pkg.sv\""
@@ -340,9 +345,7 @@ echo "Adding local common cells..."
 if [ -f "${VSRC_DIR}/fifo_v3.sv" ]; then
     append_file "${VSRC_DIR}/fifo_v3.sv" "FIFO common cell (local)"
 fi
-if [ -f "${VSRC_DIR}/cluster_clock_gating.sv" ]; then
-    append_file "${VSRC_DIR}/cluster_clock_gating.sv" "Clock gating cell (local)"
-fi
+# Note: cluster_clock_gating is added earlier (after ita_package) since it's needed by register files
 
 # Step 8: ITA HWPE package (depends on hci_package and ita_package)
 echo "Adding ita_hwpe_package..."

@@ -30,7 +30,8 @@ frozen: false
 # List of source files in this package. Optional.
 sources:
   # Individual source files are simple string entries:
-  - src/main/resources/vsrc/hwpe/ita_hwpe_aggregated.sv
+  #- src/main/resources/vsrc/hwpe/ita_hwpe_aggregated.sv
+  - /pool0/pmcewen/rsgvm13dir/ctc_chipyard/chipyard/sims/verilator/generated-src/chipyard.harness.TestHarness.MyCustomITAHWPEConfig/gen-collateral/ita_hwpe_aggregated.sv
   - src/main/resources/vsrc/hwpe/tb/ita_hwpe_tb.sv
   - src/main/resources/vsrc/hwpe/tb/tb_dummy_memory.sv
   # Testbench utilities needed by ita_hwpe_tb
