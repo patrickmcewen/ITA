@@ -41,6 +41,11 @@ ifeq ($(target), sim_ita_hwpe_tb)
 	vlog_defs += -DHCI_ASSERT_DELAY=\#41ps
 endif
 
+ifeq ($(target), sim_ita_hwpe_wrap_tb)
+	BENDER_TARGETS += -t ita_hwpe -t ita_hwpe_test
+	vlog_defs += -DHCI_ASSERT_DELAY=\#41ps
+endif
+
 VLOG_FLAGS += -svinputport=compat
 VLOG_FLAGS += -timescale 1ns/1ps
 

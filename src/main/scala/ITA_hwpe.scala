@@ -19,7 +19,7 @@ case class ITAHWPEParams(
   AccDataWidth: Int = 1024,
   IdWidth: Int = 2,
   // System params
-  MemDataWidth: Int = 64,
+  MemDataWidth: Int = 32,
   // ITA dimensions - these should match the SystemVerilog parameters
   N: Int = 16,  // Number of parallel units
   M: Int = 64,  // Input dimension
@@ -54,14 +54,14 @@ class ITAHWPEBlackBox(params: ITAHWPEParams) extends BlackBox with HasBlackBoxRe
     val busy_o = Output(Bool())
 
     // TCDM master ports (MP ports)
-    val tcdm_req_o = Output(Vec(params.MP, Bool()))
-    val tcdm_gnt_i = Input(Vec(params.MP, Bool()))
+    val tcdm_req_o = Output(UInt(params.MP.W))
+    val tcdm_gnt_i = Input(UInt(params.MP.W))
     val tcdm_add_o = Output(Vec(params.MP, UInt(32.W)))
-    val tcdm_wen_o = Output(Vec(params.MP, Bool()))
+    val tcdm_wen_o = Output(UInt(params.MP.W))
     val tcdm_be_o = Output(Vec(params.MP, UInt((params.MemDataWidth/8).W)))
     val tcdm_data_o = Output(Vec(params.MP, UInt(params.MemDataWidth.W)))
     val tcdm_r_data_i = Input(Vec(params.MP, UInt(params.MemDataWidth.W)))
-    val tcdm_r_valid_i = Input(Vec(params.MP, Bool()))
+    val tcdm_r_valid_i = Input(UInt(params.MP.W))
 
     // Peripheral slave port
     val periph_req_i = Input(Bool())
@@ -134,8 +134,8 @@ class ITAHWPETL(params: ITAHWPEParams, beatBytes: Int)(implicit p: Parameters) e
       val periphIdReg     = RegInit(0.U(params.IdWidth.W))
 
       // Hook input regs to the blackbox
-      impl.io.tcdm_gnt_i    := tcdmGntReg.asBools
-      impl.io.tcdm_r_valid_i:= tcdmRValidReg.asBools
+      impl.io.tcdm_gnt_i    := tcdmGntReg
+      impl.io.tcdm_r_valid_i:= tcdmRValidReg
       impl.io.tcdm_r_data_i := tcdmRDataReg
       impl.io.periph_req_i  := periphReqReg
       impl.io.periph_add_i  := periphAddReg
@@ -233,7 +233,7 @@ class WithITAHWPE(
   address: BigInt = 0x6000,
   AccDataWidth: Int = 1024,
   IdWidth: Int = 2,
-  MemDataWidth: Int = 64,
+  MemDataWidth: Int = 32,
   N: Int = 16,
   M: Int = 64,
   S: Int = 64,

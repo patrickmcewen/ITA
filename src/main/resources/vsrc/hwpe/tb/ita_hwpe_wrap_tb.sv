@@ -4,7 +4,7 @@
 
 `include "hci_helpers.svh"
 
-module ita_hwpe_tb;
+module ita_hwpe_wrap_tb;
 
   import ita_hwpe_package::*;
   import ita_package::*;
@@ -121,10 +121,20 @@ module ita_hwpe_tb;
   initial begin
     $timeformat(-9, 1, " ns", 11);
 
-    // Use the pre-generated stimulus/example located in
-    // /pool0/pmcewen/rsgvm13dir/ctc_chipyard/chipyard/generators/ITA/data_S64_E64_P64_F64_H1_B1_Identity
-    // instead of constructing a relative simvectors path.
-    simdir = "/pool0/pmcewen/rsgvm13dir/ctc_chipyard/chipyard/generators/ITA/data_S64_E64_P64_F64_H1_B1_Identity";
+    simdir = {
+      "../../simvectors/data_S",
+      $sformatf("%0d", SEQUENCE_LEN),
+      "_E",
+      $sformatf("%0d", EMBEDDING_SIZE),
+      "_P",
+      $sformatf("%0d", PROJECTION_SPACE),
+      "_F",
+      $sformatf("%0d", FEEDFORWARD_SIZE),
+      "_H1_B",
+      $sformatf("%0d", `ifdef BIAS `BIAS `else 0 `endif),
+      "_",
+      $sformatf( "%s", ACTIVATION)
+    };
     // Number of tiles in the sequence dimension
     N_TILES_SEQUENCE_DIM = SEQUENCE_LEN / M_TILE_LEN;
     // Number of tiles in the embedding dimension
@@ -257,7 +267,7 @@ module ita_hwpe_tb;
   );
 
   // Instantiate the DUT for initial simulation.
-  ita_hwpe_wrap #(
+  ITAHWPEBlackBox #(
     .AccDataWidth (ITA_TCDM_DW ),
     .IdWidth      (IdWidth     ),
     .MemDataWidth (MemDataWidth)
@@ -265,17 +275,149 @@ module ita_hwpe_tb;
     .clk_i              (clk                 ),
     .rst_ni             (rst_n               ),
     .test_mode_i        (1'b0                ),
-    .evt_o              (evt                 ),
+    .evt_o_0            (evt[0]               ),
+    .evt_o_1            (evt[1]               ),
+    .evt_o_2            (evt[2]               ),
+    .evt_o_3            (evt[3]               ),
+    .evt_o_4            (evt[4]               ),
+    .evt_o_5            (evt[5]               ),
+    .evt_o_6            (evt[6]               ),
+    .evt_o_7            (evt[7]               ),
+    .evt_o_8            (evt[8]               ),
     .busy_o             (busy                ),
 
-    .tcdm_req_o         ( tcdm_req           ),
-    .tcdm_add_o         ( tcdm_add           ),
-    .tcdm_wen_o         ( tcdm_wen           ),
-    .tcdm_be_o          ( tcdm_be            ),
-    .tcdm_data_o        ( tcdm_data          ),
-    .tcdm_gnt_i         ( tcdm_gnt           ),
-    .tcdm_r_data_i      ( tcdm_r_data        ),
-    .tcdm_r_valid_i     ( tcdm_r_valid       ),
+    .tcdm_req_o          (tcdm_req            ),  // Packed array
+    .tcdm_gnt_i           (tcdm_gnt            ),  // Packed array
+    .tcdm_add_o_0       (tcdm_add[0]          ),
+    .tcdm_add_o_1       (tcdm_add[1]          ),
+    .tcdm_add_o_2       (tcdm_add[2]          ),
+    .tcdm_add_o_3       (tcdm_add[3]          ),
+    .tcdm_add_o_4       (tcdm_add[4]          ),
+    .tcdm_add_o_5       (tcdm_add[5]          ),
+    .tcdm_add_o_6       (tcdm_add[6]          ),
+    .tcdm_add_o_7       (tcdm_add[7]          ),
+    .tcdm_add_o_8       (tcdm_add[8]          ),
+    .tcdm_add_o_9       (tcdm_add[9]          ),
+    .tcdm_add_o_10      (tcdm_add[10]         ),
+    .tcdm_add_o_11      (tcdm_add[11]         ),
+    .tcdm_add_o_12      (tcdm_add[12]         ),
+    .tcdm_add_o_13      (tcdm_add[13]         ),
+    .tcdm_add_o_14      (tcdm_add[14]         ),
+    .tcdm_add_o_15      (tcdm_add[15]         ),
+    .tcdm_add_o_16      (tcdm_add[16]         ),
+    .tcdm_add_o_17      (tcdm_add[17]         ),
+    .tcdm_add_o_18      (tcdm_add[18]         ),
+    .tcdm_add_o_19      (tcdm_add[19]         ),
+    .tcdm_add_o_20      (tcdm_add[20]         ),
+    .tcdm_add_o_21      (tcdm_add[21]         ),
+    .tcdm_add_o_22      (tcdm_add[22]         ),
+    .tcdm_add_o_23      (tcdm_add[23]         ),
+    .tcdm_add_o_24      (tcdm_add[24]         ),
+    .tcdm_add_o_25      (tcdm_add[25]         ),
+    .tcdm_add_o_26      (tcdm_add[26]         ),
+    .tcdm_add_o_27      (tcdm_add[27]         ),
+    .tcdm_add_o_28      (tcdm_add[28]         ),
+    .tcdm_add_o_29      (tcdm_add[29]         ),
+    .tcdm_add_o_30      (tcdm_add[30]         ),
+    .tcdm_add_o_31      (tcdm_add[31]         ),
+    .tcdm_wen_o           (tcdm_wen            ),  // Packed array
+    .tcdm_be_o_0        (tcdm_be[0]           ),
+    .tcdm_be_o_1        (tcdm_be[1]           ),
+    .tcdm_be_o_2        (tcdm_be[2]           ),
+    .tcdm_be_o_3        (tcdm_be[3]           ),
+    .tcdm_be_o_4        (tcdm_be[4]           ),
+    .tcdm_be_o_5        (tcdm_be[5]           ),
+    .tcdm_be_o_6        (tcdm_be[6]           ),
+    .tcdm_be_o_7        (tcdm_be[7]           ),
+    .tcdm_be_o_8        (tcdm_be[8]           ),
+    .tcdm_be_o_9        (tcdm_be[9]           ),
+    .tcdm_be_o_10       (tcdm_be[10]          ),
+    .tcdm_be_o_11       (tcdm_be[11]          ),
+    .tcdm_be_o_12       (tcdm_be[12]          ),
+    .tcdm_be_o_13       (tcdm_be[13]          ),
+    .tcdm_be_o_14       (tcdm_be[14]          ),
+    .tcdm_be_o_15       (tcdm_be[15]          ),
+    .tcdm_be_o_16       (tcdm_be[16]          ),
+    .tcdm_be_o_17       (tcdm_be[17]          ),
+    .tcdm_be_o_18       (tcdm_be[18]          ),
+    .tcdm_be_o_19       (tcdm_be[19]          ),
+    .tcdm_be_o_20       (tcdm_be[20]          ),
+    .tcdm_be_o_21       (tcdm_be[21]          ),
+    .tcdm_be_o_22       (tcdm_be[22]          ),
+    .tcdm_be_o_23       (tcdm_be[23]          ),
+    .tcdm_be_o_24       (tcdm_be[24]          ),
+    .tcdm_be_o_25       (tcdm_be[25]          ),
+    .tcdm_be_o_26       (tcdm_be[26]          ),
+    .tcdm_be_o_27       (tcdm_be[27]          ),
+    .tcdm_be_o_28       (tcdm_be[28]          ),
+    .tcdm_be_o_29       (tcdm_be[29]          ),
+    .tcdm_be_o_30       (tcdm_be[30]          ),
+    .tcdm_be_o_31       (tcdm_be[31]          ),
+    .tcdm_data_o_0      (tcdm_data[0]         ),
+    .tcdm_data_o_1      (tcdm_data[1]         ),
+    .tcdm_data_o_2      (tcdm_data[2]         ),
+    .tcdm_data_o_3      (tcdm_data[3]         ),
+    .tcdm_data_o_4      (tcdm_data[4]         ),
+    .tcdm_data_o_5      (tcdm_data[5]         ),
+    .tcdm_data_o_6      (tcdm_data[6]         ),
+    .tcdm_data_o_7      (tcdm_data[7]         ),
+    .tcdm_data_o_8      (tcdm_data[8]         ),
+    .tcdm_data_o_9      (tcdm_data[9]         ),
+    .tcdm_data_o_10     (tcdm_data[10]        ),
+    .tcdm_data_o_11     (tcdm_data[11]        ),
+    .tcdm_data_o_12     (tcdm_data[12]        ),
+    .tcdm_data_o_13     (tcdm_data[13]        ),
+    .tcdm_data_o_14     (tcdm_data[14]        ),
+    .tcdm_data_o_15     (tcdm_data[15]        ),
+    .tcdm_data_o_16     (tcdm_data[16]        ),
+    .tcdm_data_o_17     (tcdm_data[17]        ),
+    .tcdm_data_o_18     (tcdm_data[18]        ),
+    .tcdm_data_o_19     (tcdm_data[19]        ),
+    .tcdm_data_o_20     (tcdm_data[20]        ),
+    .tcdm_data_o_21     (tcdm_data[21]        ),
+    .tcdm_data_o_22     (tcdm_data[22]        ),
+    .tcdm_data_o_23     (tcdm_data[23]        ),
+    .tcdm_data_o_24     (tcdm_data[24]        ),
+    .tcdm_data_o_25     (tcdm_data[25]        ),
+    .tcdm_data_o_26     (tcdm_data[26]        ),
+    .tcdm_data_o_27     (tcdm_data[27]        ),
+    .tcdm_data_o_28     (tcdm_data[28]        ),
+    .tcdm_data_o_29     (tcdm_data[29]        ),
+    .tcdm_data_o_30     (tcdm_data[30]        ),
+    .tcdm_data_o_31     (tcdm_data[31]        ),
+    .tcdm_r_data_i_0    (tcdm_r_data[0]       ),
+    .tcdm_r_data_i_1    (tcdm_r_data[1]       ),
+    .tcdm_r_data_i_2    (tcdm_r_data[2]       ),
+    .tcdm_r_data_i_3    (tcdm_r_data[3]       ),
+    .tcdm_r_data_i_4    (tcdm_r_data[4]       ),
+    .tcdm_r_data_i_5    (tcdm_r_data[5]       ),
+    .tcdm_r_data_i_6    (tcdm_r_data[6]       ),
+    .tcdm_r_data_i_7    (tcdm_r_data[7]       ),
+    .tcdm_r_data_i_8    (tcdm_r_data[8]       ),
+    .tcdm_r_data_i_9    (tcdm_r_data[9]       ),
+    .tcdm_r_data_i_10   (tcdm_r_data[10]      ),
+    .tcdm_r_data_i_11   (tcdm_r_data[11]      ),
+    .tcdm_r_data_i_12   (tcdm_r_data[12]      ),
+    .tcdm_r_data_i_13   (tcdm_r_data[13]      ),
+    .tcdm_r_data_i_14   (tcdm_r_data[14]      ),
+    .tcdm_r_data_i_15   (tcdm_r_data[15]      ),
+    .tcdm_r_data_i_16   (tcdm_r_data[16]      ),
+    .tcdm_r_data_i_17   (tcdm_r_data[17]      ),
+    .tcdm_r_data_i_18   (tcdm_r_data[18]      ),
+    .tcdm_r_data_i_19   (tcdm_r_data[19]      ),
+    .tcdm_r_data_i_20   (tcdm_r_data[20]      ),
+    .tcdm_r_data_i_21   (tcdm_r_data[21]      ),
+    .tcdm_r_data_i_22   (tcdm_r_data[22]      ),
+    .tcdm_r_data_i_23   (tcdm_r_data[23]      ),
+    .tcdm_r_data_i_24   (tcdm_r_data[24]      ),
+    .tcdm_r_data_i_25   (tcdm_r_data[25]      ),
+    .tcdm_r_data_i_26   (tcdm_r_data[26]      ),
+    .tcdm_r_data_i_27   (tcdm_r_data[27]      ),
+    .tcdm_r_data_i_28   (tcdm_r_data[28]      ),
+    .tcdm_r_data_i_29   (tcdm_r_data[29]      ),
+    .tcdm_r_data_i_30   (tcdm_r_data[30]      ),
+    .tcdm_r_data_i_31   (tcdm_r_data[31]      ),
+    .tcdm_r_valid_i       (tcdm_r_valid        ),  // Packed array
 
     .periph_req_i       ( periph.req         ),
     .periph_gnt_o       ( periph.gnt         ),
@@ -333,7 +475,7 @@ endfunction
 
     // Load memory
     STIM_DATA = {simdir,"/hwpe/mem.txt"};
-    $readmemh(STIM_DATA, ita_hwpe_tb.i_data_memory.memory);
+    $readmemh(STIM_DATA, ita_hwpe_wrap_tb.i_data_memory.memory);
 
     ita_reg_tiles_val_compute(N_TILES_SEQUENCE_DIM, N_TILES_EMBEDDING_DIM, N_TILES_PROJECTION_DIM, N_TILES_FEEDFORWARD_DIM, ita_reg_tiles_val);
     ita_reg_eps_mult_val_compute(ita_reg_rqs_val);
@@ -775,8 +917,8 @@ endfunction
     counter = address/4;
     while (!$feof(stim_fd)) begin
       ret_code = $fscanf(stim_fd, "%x\n", exp_res);
-      if (exp_res !== ita_hwpe_tb.i_data_memory.memory[counter]) begin
-        $display("Output mismatch at address %x (index %0d): Expected %x, Got %x", counter*4, counter*4-address, exp_res, ita_hwpe_tb.i_data_memory.memory[counter]);
+      if (exp_res !== ita_hwpe_wrap_tb.i_data_memory.memory[counter]) begin
+        $display("Output mismatch at address %x (index %0d): Expected %x, Got %x", counter*4, counter*4-address, exp_res, ita_hwpe_wrap_tb.i_data_memory.memory[counter]);
       end
       counter++;
     end

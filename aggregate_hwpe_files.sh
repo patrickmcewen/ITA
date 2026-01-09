@@ -26,6 +26,7 @@ EXCLUDE_FILES=(
     # Uncomment and add files as needed:
     "*/tc_sram_xilinx.sv"
     "*/fpga_scm/register_file_1r_1w_be.sv"
+    "*latch_scm*"
 )
 
 # Function to check if a file should be excluded
