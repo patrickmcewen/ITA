@@ -96,7 +96,19 @@ class ITAHWPEBlackBox(params: ITAHWPEParams) extends BlackBox with HasBlackBoxRe
 
 // ITA HWPE Top IO
 class ITAHWPETopIO(params: ITAHWPEParams) extends Bundle {
-  val ita_busy = Output(Bool())
+  val ita_busy         = Output(Bool())
+
+  // Direct peripheral interface at top level
+  val periph_req_i     = Input(Bool())
+  val periph_gnt_o     = Output(Bool())
+  val periph_add_i     = Input(UInt(32.W))
+  val periph_wen_i     = Input(Bool())
+  val periph_be_i      = Input(UInt(4.W))
+  val periph_data_i    = Input(UInt(32.W))
+  val periph_id_i      = Input(UInt(params.IdWidth.W))
+  val periph_r_data_o  = Output(UInt(32.W))
+  val periph_r_valid_o = Output(Bool())
+  val periph_r_id_o    = Output(UInt(params.IdWidth.W))
 }
 
 trait HasITAHWPETopIO {
@@ -111,6 +123,12 @@ class ITAHWPETL(params: ITAHWPEParams, beatBytes: Int)(implicit p: Parameters) e
   class ITAHWPEImpl extends Impl with HasITAHWPETopIO {
     val io = IO(new ITAHWPETopIO(params))
     withClockAndReset(clock, reset) {
+
+      // Registers to drive inputs coming from the memory-mapped side
+      val tcdmGntReg      = RegInit(0.U(params.MP.W))
+      val tcdmRValidReg   = RegInit(0.U(params.MP.W))
+      val tcdmRDataReg    = Reg(Vec(params.MP, UInt(params.MemDataWidth.W)))
+
       // Instantiate the ITA HWPE blackbox
       val impl = Module(new ITAHWPEBlackBox(params))
 
@@ -122,27 +140,21 @@ class ITAHWPETL(params: ITAHWPEParams, beatBytes: Int)(implicit p: Parameters) e
       // Connect events and busy
       io.ita_busy := impl.io.busy_o
 
-      // Registers to drive inputs coming from the memory-mapped side
-      val tcdmGntReg      = RegInit(0.U(params.MP.W))
-      val tcdmRValidReg   = RegInit(0.U(params.MP.W))
-      val tcdmRDataReg    = Reg(Vec(params.MP, UInt(params.MemDataWidth.W)))
-      val periphReqReg    = RegInit(false.B)
-      val periphAddReg    = RegInit(0.U(32.W))
-      val periphWenReg    = RegInit(false.B)
-      val periphBeReg     = RegInit(0.U(4.W))
-      val periphDataReg   = RegInit(0.U(32.W))
-      val periphIdReg     = RegInit(0.U(params.IdWidth.W))
-
       // Hook input regs to the blackbox
       impl.io.tcdm_gnt_i    := tcdmGntReg
       impl.io.tcdm_r_valid_i:= tcdmRValidReg
       impl.io.tcdm_r_data_i := tcdmRDataReg
-      impl.io.periph_req_i  := periphReqReg
-      impl.io.periph_add_i  := periphAddReg
-      impl.io.periph_wen_i  := periphWenReg
-      impl.io.periph_be_i   := periphBeReg
-      impl.io.periph_data_i := periphDataReg
-      impl.io.periph_id_i   := periphIdReg
+      impl.io.periph_req_i  := io.periph_req_i
+      impl.io.periph_add_i  := io.periph_add_i
+      impl.io.periph_wen_i  := io.periph_wen_i
+      impl.io.periph_be_i   := io.periph_be_i
+      impl.io.periph_data_i := io.periph_data_i
+      impl.io.periph_id_i   := io.periph_id_i
+
+      io.periph_gnt_o := impl.io.periph_gnt_o
+      io.periph_r_data_o := impl.io.periph_r_data_o
+      io.periph_r_valid_o := impl.io.periph_r_valid_o
+      io.periph_r_id_o := impl.io.periph_r_id_o
 
       // Address planning to keep blocks contiguous
       // Note: Registers wider than 4 bytes must be 8-byte aligned
@@ -157,7 +169,6 @@ class ITAHWPETL(params: ITAHWPEParams, beatBytes: Int)(implicit p: Parameters) e
       val tcdmRDataBase = tcdmDataBase + params.MP * 8
       // tcdmRDataBase registers are 8 bytes wide (64 bits), so space them 8 bytes apart
       val tcdmRValidOff = tcdmRDataBase + params.MP * 8
-      val periphBase    = tcdmRValidOff + 4
 
       val regFields =
         // Event outputs - one register per core (2 bits each, spaced 4 bytes apart)
@@ -185,17 +196,8 @@ class ITAHWPETL(params: ITAHWPEParams, beatBytes: Int)(implicit p: Parameters) e
           (tcdmRDataBase + i * 8) -> Seq(RegField.w(params.MemDataWidth, tcdmRDataReg(i)))
         } ++
         Seq(
-          tcdmRValidOff -> Seq(RegField.w(params.MP, tcdmRValidReg)),
-          periphBase    -> Seq(RegField.w(1, periphReqReg)),
-          periphBase+4  -> Seq(RegField.r(1, impl.io.periph_gnt_o)),
-          periphBase+8  -> Seq(RegField.w(32, periphAddReg)),
-          periphBase+12 -> Seq(RegField.w(1, periphWenReg)),
-          periphBase+16 -> Seq(RegField.w(4, periphBeReg)),
-          periphBase+20 -> Seq(RegField.w(32, periphDataReg)),
-          periphBase+24 -> Seq(RegField.w(params.IdWidth, periphIdReg)),
-          periphBase+28 -> Seq(RegField.r(32, impl.io.periph_r_data_o)),
-          periphBase+32 -> Seq(RegField.r(1, impl.io.periph_r_valid_o)),
-          periphBase+36 -> Seq(RegField.r(params.IdWidth, impl.io.periph_r_id_o))
+          // TCDM read-data valid comes from the memory-mapped side
+          tcdmRValidOff -> Seq(RegField.w(params.MP, tcdmRValidReg))
         )
 
       node.regmap(regFields: _*)
@@ -208,22 +210,77 @@ trait CanHavePeripheryITAHWPE { this: BaseSubsystem =>
   private val portName = "ita"
   private val pbus = locateTLBusWrapper(PBUS)
 
-  private val ita_hwpe_inst = p(ITAHWPEKey).map { params =>
-    val ita_hwpe = LazyModule(new ITAHWPETL(params, pbus.beatBytes)(p))
-    ita_hwpe.clockNode := pbus.fixedClockNode
-    pbus.coupleTo(portName) {
-      TLInwardClockCrossingHelper("ita_hwpe_crossing", ita_hwpe, ita_hwpe.node)(SynchronousCrossing()) :=
-        TLFragmenter(pbus.beatBytes, pbus.blockBytes) := _
-    }
-    ita_hwpe
+  val ita_hwpe = LazyModule(new ITAHWPETL(p(ITAHWPEKey).get, pbus.beatBytes)(p))
+  ita_hwpe.clockNode := pbus.fixedClockNode
+  pbus.coupleTo(portName) {
+    TLInwardClockCrossingHelper("ita_hwpe_crossing", ita_hwpe, ita_hwpe.node)(SynchronousCrossing()) :=
+      TLFragmenter(pbus.beatBytes, pbus.blockBytes) := _
   }
 
-  val ita_hwpe_busy = ita_hwpe_inst.map { ita_hwpe =>
-    InModuleBody {
-      val busy = IO(Output(Bool())).suggestName("ita_hwpe_busy")
-      busy := ita_hwpe.module.io.ita_busy
-      busy
-    }
+  val ita_busy = InModuleBody {
+    val busy = IO(Output(Bool())).suggestName("ita_hwpe_busy")
+    busy := ita_hwpe.module.io.ita_busy
+    busy
+  }
+
+  val ita_periph_gnt_o = InModuleBody {
+    val gnt = IO(Output(Bool())).suggestName("ita_hwpe_periph_gnt_o")
+    gnt := ita_hwpe.module.io.periph_gnt_o
+    gnt
+  }
+  
+  val ita_periph_r_data_o = InModuleBody {
+    val r_data = IO(Output(UInt(32.W))).suggestName("ita_hwpe_periph_r_data_o")
+    r_data := ita_hwpe.module.io.periph_r_data_o
+    r_data
+  }
+  
+  val ita_periph_r_valid_o = InModuleBody {
+    val r_valid = IO(Output(Bool())).suggestName("ita_hwpe_periph_r_valid_o")
+    r_valid := ita_hwpe.module.io.periph_r_valid_o
+    r_valid
+  }
+  
+  val ita_periph_r_id_o = InModuleBody {
+    val r_id = IO(Output(UInt(p(ITAHWPEKey).get.IdWidth.W))).suggestName("ita_hwpe_periph_r_id_o")
+    r_id := ita_hwpe.module.io.periph_r_id_o
+    r_id
+  }
+
+  val ita_periph_req_i = InModuleBody {
+    val req = IO(Input(Bool())).suggestName("ita_hwpe_periph_req_i")
+    ita_hwpe.module.io.periph_req_i := req
+    req
+  }
+
+  val ita_periph_add_i = InModuleBody {
+    val add = IO(Input(UInt(32.W))).suggestName("ita_hwpe_periph_add_i")
+    ita_hwpe.module.io.periph_add_i := add
+    add
+  }
+  
+  val ita_periph_wen_i = InModuleBody {
+    val wen = IO(Input(Bool())).suggestName("ita_hwpe_periph_wen_i")
+    ita_hwpe.module.io.periph_wen_i := wen
+    wen
+  }
+  
+  val ita_periph_be_i = InModuleBody {
+    val be = IO(Input(UInt(4.W))).suggestName("ita_hwpe_periph_be_i")
+    ita_hwpe.module.io.periph_be_i := be
+    be
+  }
+
+  val ita_periph_data_i = InModuleBody {
+    val data = IO(Input(UInt(32.W))).suggestName("ita_hwpe_periph_data_i")
+    ita_hwpe.module.io.periph_data_i := data
+    data
+  }
+  
+  val ita_periph_id_i = InModuleBody {
+    val id = IO(Input(UInt(p(ITAHWPEKey).get.IdWidth.W))).suggestName("ita_hwpe_periph_id_i")
+    ita_hwpe.module.io.periph_id_i := id
+    id
   }
 }
 
